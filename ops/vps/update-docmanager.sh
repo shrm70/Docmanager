@@ -16,4 +16,14 @@ systemctl restart docmanager-api.service
 systemctl restart docmanager-worker.service
 systemctl reload apache2
 
-curl -fsS http://127.0.0.1:8787/health
+for attempt in $(seq 1 20); do
+  if curl -fsS http://127.0.0.1:8787/health; then
+    exit 0
+  fi
+
+  sleep 1
+done
+
+echo "DocManager API did not become healthy after restart." >&2
+systemctl status docmanager-api.service --no-pager >&2 || true
+exit 1
