@@ -1,54 +1,34 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { DocumentCanvas } from "../../canvas/DocumentCanvas";
-import type { DocumentBlock, DocumentRecord, SearchHit, VariantKey } from "../../features/documents/model";
+import {
+  getBlockTextForVariant,
+  markDocumentEdited,
+  markVariantFresh,
+  normalizeDocumentRecord,
+  projectDocumentForVariant
+} from "../../features/documents/helpers";
+import type { DocumentBlock, DocumentRecord, SearchHit, TextOperationResult, VariantKey } from "../../features/documents/model";
 import { downloadDocument } from "../../features/documents/storage";
 import { LeftPane, type LeftPaneTab } from "../../left-pane/LeftPane";
 import { Ribbon, type RibbonTab } from "../../ribbon/Ribbon";
 import { RightPane } from "../../right-pane/RightPane";
 import { useDocumentStore } from "../providers/DocumentStoreProvider";
 
-const cloneDocument = (document: DocumentRecord): DocumentRecord => ({
-  ...document,
-  variants: document.variants.map((variant) => ({ ...variant })),
-  pages: document.pages.map((page) => ({
-    ...page,
-    blocks: page.blocks.map((block) => ({
-      ...block,
-      style: { ...block.style },
-      meta: block.meta ? { ...block.meta } : undefined
-    }))
-  }))
-});
-
-const markVariantsStale = (document: DocumentRecord): DocumentRecord => ({
-  ...document,
-  updatedAt: new Date().toISOString(),
-  variants: document.variants.map((variant) =>
-    variant.key === document.masterVariant
-      ? { ...variant, isMaster: true, isStale: false, lastSyncedAt: new Date().toISOString() }
-      : { ...variant, isMaster: false, isStale: true }
-  )
-});
-
-const markVariantsFresh = (document: DocumentRecord, target?: VariantKey): DocumentRecord => {
-  const now = new Date().toISOString();
-
-  return {
+const cloneDocument = (document: DocumentRecord): DocumentRecord =>
+  normalizeDocumentRecord({
     ...document,
-    variants: document.variants.map((variant) => {
-      if (target && variant.key !== target) {
-        return variant;
-      }
-
-      return {
-        ...variant,
-        isStale: false,
-        lastSyncedAt: now
-      };
-    })
-  };
-};
+    variants: document.variants.map((variant) => ({ ...variant })),
+    pages: document.pages.map((page) => ({
+      ...page,
+      blocks: page.blocks.map((block) => ({
+        ...block,
+        contentByVariant: block.contentByVariant ? { ...block.contentByVariant } : undefined,
+        style: { ...block.style },
+        meta: block.meta ? { ...block.meta } : undefined
+      }))
+    }))
+  });
 
 const locateBlock = (document: DocumentRecord, blockId: string | null) => {
   for (const page of document.pages) {
@@ -64,6 +44,7 @@ const locateBlock = (document: DocumentRecord, blockId: string | null) => {
 
 const createObjectBlock = (
   pageId: string,
+  masterVariant: VariantKey,
   kind: DocumentBlock["kind"],
   text: string,
   styleOverrides: Partial<DocumentBlock["style"]> = {}
@@ -72,6 +53,9 @@ const createObjectBlock = (
   kind,
   pageId,
   text,
+  contentByVariant: {
+    [masterVariant]: text
+  },
   style: {
     fontSize: kind === "heading" ? 28 : 16,
     color: "#2a2a2a",
@@ -83,18 +67,79 @@ const createObjectBlock = (
   }
 });
 
+const updateBlockVariantContent = (
+  document: DocumentRecord,
+  blockId: string,
+  targetVariant: VariantKey,
+  result: TextOperationResult
+): DocumentRecord => {
+  const now = new Date().toISOString();
+
+  return {
+    ...document,
+    updatedAt: now,
+    pages: document.pages.map((page) => ({
+      ...page,
+      blocks: page.blocks.map((block) => {
+        if (block.id !== blockId) {
+          return block;
+        }
+
+        const contentByVariant = {
+          ...(block.contentByVariant ?? {}),
+          [document.masterVariant]: getBlockTextForVariant(block, document.masterVariant),
+          [targetVariant]: result.text
+        };
+
+        return {
+          ...block,
+          contentByVariant,
+          text: document.masterVariant === targetVariant ? result.text : block.text
+        };
+      })
+    })),
+    variants: document.variants.map((variant) =>
+      variant.key === targetVariant
+        ? { ...variant, isStale: false, lastSyncedAt: now }
+        : variant
+    )
+  };
+};
+
+const refreshVariantPreview = (document: DocumentRecord, nextMaster: VariantKey) =>
+  projectDocumentForVariant(
+    {
+      ...document,
+      masterVariant: nextMaster,
+      variants: document.variants.map((variant) => ({
+        ...variant,
+        isMaster: variant.key === nextMaster,
+        isStale: variant.key !== nextMaster ? variant.isStale : false
+      }))
+    },
+    nextMaster
+  );
+
 interface EditorWorkspaceProps {
   sourceDocument: DocumentRecord;
 }
 
 const EditorWorkspace = ({ sourceDocument }: EditorWorkspaceProps) => {
   const navigate = useNavigate();
-  const { createDocument, saveDocument, setMasterVariant, syncDocumentVariants } = useDocumentStore();
+  const {
+    convertText,
+    createDocument,
+    saveDocument,
+    storageMode,
+    syncDocumentVariants,
+    translateText
+  } = useDocumentStore();
   const [activeRibbonTab, setActiveRibbonTab] = useState<RibbonTab>("Home");
   const [activeLeftPaneTab, setActiveLeftPaneTab] = useState<LeftPaneTab>("chapters");
   const [searchQuery, setSearchQuery] = useState("");
   const deferredSearchQuery = useDeferredValue(searchQuery);
   const [autosaveStatus, setAutosaveStatus] = useState("Saved");
+  const [operationMessage, setOperationMessage] = useState<string | null>(null);
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(sourceDocument.pages[0]?.blocks[0]?.id ?? null);
   const [currentPageNumber, setCurrentPageNumber] = useState(1);
   const [hasPendingSave, setHasPendingSave] = useState(false);
@@ -102,14 +147,37 @@ const EditorWorkspace = ({ sourceDocument }: EditorWorkspaceProps) => {
   const [workingDocument, setWorkingDocument] = useState<DocumentRecord>(() => cloneDocument(sourceDocument));
 
   useEffect(() => {
+    if (hasPendingSave || sourceDocument.updatedAt === workingDocument.updatedAt) {
+      return;
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      setWorkingDocument(cloneDocument(sourceDocument));
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
+  }, [hasPendingSave, sourceDocument, workingDocument.updatedAt]);
+
+  useEffect(() => {
     if (!hasPendingSave) {
       return;
     }
 
     const timeout = window.setTimeout(() => {
-      saveDocument(workingDocument);
-      setHasPendingSave(false);
-      setAutosaveStatus("Saved");
+      void saveDocument(workingDocument)
+        .then((savedDocument) => {
+          setWorkingDocument(cloneDocument(savedDocument));
+          setAutosaveStatus("Saved");
+        })
+        .catch((error) => {
+          setAutosaveStatus("Save failed");
+          setOperationMessage(error instanceof Error ? error.message : "Document save failed.");
+        })
+        .finally(() => {
+          setHasPendingSave(false);
+        });
     }, 900);
 
     return () => {
@@ -139,13 +207,9 @@ const EditorWorkspace = ({ sourceDocument }: EditorWorkspaceProps) => {
   }, [deferredSearchQuery, workingDocument]);
 
   const updateDocument = (updater: (document: DocumentRecord) => DocumentRecord) => {
-    setWorkingDocument((current) => markVariantsStale(updater(current)));
+    setWorkingDocument((current) => markDocumentEdited(updater(current)));
     setHasPendingSave(true);
     setAutosaveStatus("Unsaved changes");
-  };
-
-  const syncVariantLocal = (variant?: VariantKey) => {
-    setWorkingDocument((current) => markVariantsFresh(current, variant));
   };
 
   const jumpToPage = (pageNumber: number) => {
@@ -175,7 +239,18 @@ const EditorWorkspace = ({ sourceDocument }: EditorWorkspaceProps) => {
       ...document,
       pages: document.pages.map((page) => ({
         ...page,
-        blocks: page.blocks.map((block) => (block.id === blockId ? { ...block, text } : block))
+        blocks: page.blocks.map((block) =>
+          block.id === blockId
+            ? {
+                ...block,
+                text,
+                contentByVariant: {
+                  ...(block.contentByVariant ?? {}),
+                  [document.masterVariant]: text
+                }
+              }
+            : block
+        )
       }))
     }));
   };
@@ -216,7 +291,7 @@ const EditorWorkspace = ({ sourceDocument }: EditorWorkspaceProps) => {
       flowchart: "Flowchart placeholder"
     };
 
-    const newBlock = createObjectBlock(pageId, kind, textMap[kind]);
+    const newBlock = createObjectBlock(pageId, workingDocument.masterVariant, kind, textMap[kind]);
     updateDocument((document) => ({
       ...document,
       pages: document.pages.map((page) =>
@@ -238,30 +313,106 @@ const EditorWorkspace = ({ sourceDocument }: EditorWorkspaceProps) => {
           id: pageId,
           number: pageNumber,
           title: `Page ${pageNumber}`,
-          blocks: [createObjectBlock(pageId, "heading", "New page heading")]
+          blocks: [createObjectBlock(pageId, document.masterVariant, "heading", "New page heading")]
         }
       ]
     }));
     setCurrentPageNumber(pageNumber);
   };
 
-  const handleSetMasterVariant = (variant: VariantKey) => {
-    setMasterVariant(workingDocument.id, variant);
-    setWorkingDocument((current) => ({
-      ...current,
-      masterVariant: variant,
-      updatedAt: new Date().toISOString(),
-      variants: current.variants.map((item) => ({
-        ...item,
-        isMaster: item.key === variant,
-        isStale: item.key !== variant
-      }))
-    }));
-    setAutosaveStatus("Saved");
-    setHasPendingSave(false);
+  const handleSetMasterVariant = async (variant: VariantKey) => {
+    try {
+      const nextDocument = refreshVariantPreview(workingDocument, variant);
+      const savedDocument = await saveDocument(nextDocument, { markEdited: false });
+
+      setWorkingDocument(cloneDocument(savedDocument));
+      setAutosaveStatus("Saved");
+      setOperationMessage(`Master variant switched to ${variant}.`);
+      setHasPendingSave(false);
+    } catch (error) {
+      setOperationMessage(error instanceof Error ? error.message : "Failed to switch the master variant.");
+    }
   };
 
-  const handleCommand = (commandId: string) => {
+  const deriveVariantResult = async (
+    text: string,
+    sourceVariant: VariantKey,
+    targetVariant: VariantKey
+  ): Promise<TextOperationResult> => {
+    if (sourceVariant === targetVariant) {
+      return {
+        text,
+        warnings: []
+      };
+    }
+
+    if (targetVariant === "ne-preeti") {
+      const unicodeResult =
+        sourceVariant === "en"
+          ? await translateText(text, "en", "ne-unicode")
+          : await convertText(text, sourceVariant, "ne-unicode");
+
+      const preetiResult = await convertText(unicodeResult.text, "ne-unicode", "ne-preeti");
+      return {
+        ...preetiResult,
+        warnings: [...(unicodeResult.warnings ?? []), ...(preetiResult.warnings ?? [])]
+      };
+    }
+
+    if (targetVariant === "ne-unicode") {
+      if (sourceVariant === "en") {
+        return translateText(text, "en", "ne-unicode");
+      }
+
+      return convertText(text, sourceVariant, "ne-unicode");
+    }
+
+    const unicodeSource =
+      sourceVariant === "ne-preeti" ? await convertText(text, "ne-preeti", "ne-unicode") : { text, warnings: [] };
+    const translated = await translateText(
+      unicodeSource.text,
+      sourceVariant === "ne-preeti" ? "ne-unicode" : sourceVariant,
+      "en"
+    );
+
+    return {
+      ...translated,
+      warnings: [...(unicodeSource.warnings ?? []), ...(translated.warnings ?? [])]
+    };
+  };
+
+  const syncSelectedBlockVariant = async (targetVariant: VariantKey) => {
+    if (!selectedBlock) {
+      return;
+    }
+
+    try {
+      const sourceText = getBlockTextForVariant(selectedBlock, workingDocument.masterVariant);
+      const result = await deriveVariantResult(sourceText, workingDocument.masterVariant, targetVariant);
+      const nextDocument = updateBlockVariantContent(workingDocument, selectedBlock.id, targetVariant, result);
+      const savedDocument = await saveDocument(nextDocument, { markEdited: false });
+
+      setWorkingDocument(cloneDocument(savedDocument));
+      setAutosaveStatus("Saved");
+      setOperationMessage(
+        result.warnings.length > 0
+          ? result.warnings.join(" ")
+          : `Selected block synced to ${targetVariant}.`
+      );
+    } catch (error) {
+      setOperationMessage(error instanceof Error ? error.message : "Variant sync failed for the selected block.");
+    }
+  };
+
+  const syncVariantStatusLocal = (variant?: VariantKey) => {
+    if (storageMode !== "local") {
+      return;
+    }
+
+    setWorkingDocument((current) => markVariantFresh(current, variant));
+  };
+
+  const handleCommand = async (commandId: string) => {
     switch (commandId) {
       case "toggle-bold":
         applyStyle({ bold: !selectedBlock?.style.bold });
@@ -312,7 +463,7 @@ const EditorWorkspace = ({ sourceDocument }: EditorWorkspaceProps) => {
         addPage();
         return;
       case "new-document": {
-        const document = createDocument();
+        const document = await createDocument();
         navigate(`/editor/${document.id}`);
         return;
       }
@@ -320,18 +471,32 @@ const EditorWorkspace = ({ sourceDocument }: EditorWorkspaceProps) => {
         downloadDocument(workingDocument);
         return;
       case "sync-all-variants":
-        syncDocumentVariants(workingDocument.id);
-        syncVariantLocal();
+        await syncDocumentVariants(workingDocument.id);
+        syncVariantStatusLocal();
+        setOperationMessage("Document-wide variant sync was queued.");
         return;
       case "sync-preeti":
-        syncDocumentVariants(workingDocument.id, "ne-preeti");
-        syncVariantLocal("ne-preeti");
+        await syncDocumentVariants(workingDocument.id, "ne-preeti");
+        syncVariantStatusLocal("ne-preeti");
+        setOperationMessage("Preeti sync was queued.");
+        return;
+      case "sync-selected-unicode":
+        await syncSelectedBlockVariant("ne-unicode");
+        return;
+      case "sync-selected-preeti":
+        await syncSelectedBlockVariant("ne-preeti");
+        return;
+      case "translate-selected-english":
+        await syncSelectedBlockVariant("en");
         return;
       case "set-master-unicode":
-        handleSetMasterVariant("ne-unicode");
+        await handleSetMasterVariant("ne-unicode");
         return;
       case "set-master-preeti":
-        handleSetMasterVariant("ne-preeti");
+        await handleSetMasterVariant("ne-preeti");
+        return;
+      case "set-master-english":
+        await handleSetMasterVariant("en");
         return;
       case "show-pages":
         setActiveLeftPaneTab("pages");
@@ -400,18 +565,26 @@ const EditorWorkspace = ({ sourceDocument }: EditorWorkspaceProps) => {
           <footer className="editor-footer">
             <span>Search results: {searchHits.length}</span>
             <span>Autosave: {autosaveStatus}</span>
-            <span>Base path: /Docmanager/</span>
+            <span>{operationMessage ?? `Storage mode: ${storageMode}`}</span>
           </footer>
         </div>
 
         <RightPane
           document={workingDocument}
           onApplyStyle={applyStyle}
-          onSetMasterVariant={handleSetMasterVariant}
-          onSyncVariant={(variant) => {
-            syncDocumentVariants(workingDocument.id, variant);
-            syncVariantLocal(variant);
+          onSetMasterVariant={(variant) => {
+            void handleSetMasterVariant(variant);
           }}
+          onSyncSelectedBlockVariant={(variant) => {
+            void syncSelectedBlockVariant(variant);
+          }}
+          onSyncVariant={(variant) => {
+            void syncDocumentVariants(workingDocument.id, variant).then(() => {
+              syncVariantStatusLocal(variant);
+              setOperationMessage(`Document sync queued for ${variant}.`);
+            });
+          }}
+          operationMessage={operationMessage}
           selectedBlock={selectedBlock}
         />
       </div>
@@ -421,8 +594,21 @@ const EditorWorkspace = ({ sourceDocument }: EditorWorkspaceProps) => {
 
 export const EditorPage = () => {
   const { documentId = "" } = useParams();
-  const { getDocument } = useDocumentStore();
+  const { getDocument, isLoading } = useDocumentStore();
   const sourceDocument = getDocument(documentId);
+
+  if (isLoading) {
+    return (
+      <main className="marketing-shell">
+        <section className="page-header">
+          <div>
+            <p className="eyebrow">Editor</p>
+            <h1>Loading document...</h1>
+          </div>
+        </section>
+      </main>
+    );
+  }
 
   if (!sourceDocument) {
     return (

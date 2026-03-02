@@ -143,7 +143,7 @@ const writeJson = async (filePath, value) => {
   await writeFile(filePath, JSON.stringify(value, null, 2));
 };
 
-export const createDataPaths = (baseDir = join(process.cwd(), "data")) => ({
+export const createDataPaths = (baseDir = join(process.cwd(), "data", "runtime")) => ({
   baseDir,
   documents: join(baseDir, "documents.json"),
   jobs: join(baseDir, "jobs.json")
@@ -185,6 +185,22 @@ export const updateStoredDocument = async (documentId, updater, paths = createDa
   );
 
   return updated;
+};
+
+export const deleteStoredDocument = async (documentId, paths = createDataPaths()) => {
+  const documents = await listStoredDocuments(paths);
+  const exists = documents.some((item) => item.id === documentId);
+
+  if (!exists) {
+    return false;
+  }
+
+  await writeJson(
+    paths.documents,
+    documents.filter((item) => item.id !== documentId)
+  );
+
+  return true;
 };
 
 export const listJobs = async (paths = createDataPaths()) => readJson(paths.jobs, []);

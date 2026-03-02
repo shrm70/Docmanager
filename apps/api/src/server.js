@@ -3,6 +3,7 @@ import cors from "@fastify/cors";
 import { fileURLToPath } from "node:url";
 import {
   createJob,
+  deleteStoredDocument,
   getStoredDocument,
   listJobs,
   listStoredDocuments,
@@ -65,6 +66,18 @@ export const buildServer = async () => {
   server.put("/api/documents/:documentId", async (request) => {
     const document = markDocumentEdited(normalizeDocument({ ...request.body, id: request.params.documentId }));
     return saveStoredDocument(document, apiConfig.dataPaths);
+  });
+
+  server.delete("/api/documents/:documentId", async (request, reply) => {
+    const deleted = await deleteStoredDocument(request.params.documentId, apiConfig.dataPaths);
+
+    if (!deleted) {
+      reply.code(404);
+      return { message: "Document not found." };
+    }
+
+    reply.code(204);
+    return null;
   });
 
   server.post("/api/documents/:documentId/sync", async (request, reply) => {

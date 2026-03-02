@@ -4,10 +4,11 @@ import { useDocumentStore } from "../providers/DocumentStoreProvider";
 
 export const GalleryPage = () => {
   const navigate = useNavigate();
-  const { documents, createDocument, deleteDocument, importTextDocument } = useDocumentStore();
+  const { createDocument, deleteDocument, documents, error, importTextDocument, isLoading, storageMode } =
+    useDocumentStore();
 
-  const handleCreate = () => {
-    const document = createDocument();
+  const handleCreate = async () => {
+    const document = await createDocument();
     navigate(`/editor/${document.id}`);
   };
 
@@ -28,10 +29,13 @@ export const GalleryPage = () => {
       <section className="page-header">
         <div>
           <p className="eyebrow">Gallery</p>
-          <h1>Manage local documents and open the studio</h1>
+          <h1>Manage documents and open the studio</h1>
+          <p className="hero-copy">
+            Storage mode: <strong>{storageMode === "api" ? "Backend API" : "Browser local storage"}</strong>
+          </p>
         </div>
         <div className="gallery-actions">
-          <button className="primary-button" onClick={handleCreate} type="button">
+          <button className="primary-button" disabled={isLoading} onClick={() => void handleCreate()} type="button">
             New Document
           </button>
           <label className="secondary-button upload-button">
@@ -41,7 +45,27 @@ export const GalleryPage = () => {
         </div>
       </section>
 
+      {error ? (
+        <section className="settings-card">
+          <div className="settings-row">
+            <span>Connection status</span>
+            <strong>{error}</strong>
+          </div>
+        </section>
+      ) : null}
+
       <section className="gallery-grid">
+        {!isLoading && documents.length === 0 ? (
+          <article className="document-card">
+            <div className="document-card__header">
+              <div>
+                <h2>No documents yet</h2>
+                <p>Create a document or import a text file to start editing.</p>
+              </div>
+            </div>
+          </article>
+        ) : null}
+
         {documents.map((document) => (
           <article className="document-card" key={document.id}>
             <div className="document-card__header">
@@ -69,7 +93,7 @@ export const GalleryPage = () => {
               <Link className="primary-button" to={`/editor/${document.id}`}>
                 Open
               </Link>
-              <button className="text-button" onClick={() => deleteDocument(document.id)} type="button">
+              <button className="text-button" onClick={() => void deleteDocument(document.id)} type="button">
                 Delete
               </button>
             </div>

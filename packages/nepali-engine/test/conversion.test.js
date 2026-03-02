@@ -7,7 +7,7 @@ import {
 } from "../src/index.js";
 
 test("detects unicode text", () => {
-  assert.equal(detectEncoding("नेपाल"), "unicode");
+  assert.equal(detectEncoding("\u0928\u0947\u092a\u093e\u0932"), "unicode");
 });
 
 test("detects preeti text", () => {
@@ -15,9 +15,9 @@ test("detects preeti text", () => {
 });
 
 test("converts preeti to unicode", () => {
-  assert.equal(convertPreetiToUnicode("g]kfn").text, "नेपाल");
+  assert.equal(convertPreetiToUnicode("g]kfn").text, "\u0928\u0947\u092a\u093e\u0932");
 });
 
 test("converts unicode to preeti", () => {
-  assert.equal(convertUnicodeToPreeti("नेपाल").text, "g]kfn");
+  assert.equal(convertUnicodeToPreeti("\u0928\u0947\u092a\u093e\u0932").text, "g]kfn");
 });

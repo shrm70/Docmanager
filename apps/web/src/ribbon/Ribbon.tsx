@@ -21,7 +21,7 @@ interface RibbonProps {
   totalPages: number;
   masterVariant: VariantKey;
   onTabChange: (tab: RibbonTab) => void;
-  onCommand: (commandId: string) => void;
+  onCommand: (commandId: string) => void | Promise<void>;
   onJumpToPage: (pageNumber: number) => void;
 }
 
@@ -138,7 +138,16 @@ const commandGroups: Record<RibbonTab, Array<{ label: string; commands: Array<{ 
       commands: [
         { id: "set-master-unicode", label: "Master Unicode" },
         { id: "set-master-preeti", label: "Master Preeti" },
+        { id: "set-master-english", label: "Master English" },
         { id: "sync-preeti", label: "Sync Preeti" }
+      ]
+    },
+    {
+      label: "Selection",
+      commands: [
+        { id: "sync-selected-unicode", label: "Selection -> Unicode" },
+        { id: "sync-selected-preeti", label: "Selection -> Preeti" },
+        { id: "translate-selected-english", label: "Selection -> English" }
       ]
     }
   ],
@@ -169,13 +178,13 @@ export const Ribbon = ({
     <header className="ribbon">
       <div className="ribbon__row ribbon__row--top">
         <div className="quick-actions">
-          <button onClick={() => onCommand("new-document")} type="button">
+          <button onClick={() => void onCommand("new-document")} type="button">
             New
           </button>
-          <button onClick={() => onCommand("download-json")} type="button">
+          <button onClick={() => void onCommand("download-json")} type="button">
             Save
           </button>
-          <button onClick={() => onCommand("sync-all-variants")} type="button">
+          <button onClick={() => void onCommand("sync-all-variants")} type="button">
             Sync
           </button>
         </div>
@@ -208,7 +217,7 @@ export const Ribbon = ({
             <section className="command-group" key={group.label}>
               <div className="command-group__buttons">
                 {group.commands.map((command) => (
-                  <button key={command.id} onClick={() => onCommand(command.id)} type="button">
+                  <button key={command.id} onClick={() => void onCommand(command.id)} type="button">
                     {command.label}
                   </button>
                 ))}

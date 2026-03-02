@@ -1,18 +1,23 @@
 import type { DocumentBlock, DocumentRecord, VariantKey } from "../features/documents/model";
+import { getBlockTextForVariant } from "../features/documents/helpers";
 
 interface RightPaneProps {
   document: DocumentRecord;
   selectedBlock: DocumentBlock | null;
+  operationMessage: string | null;
   onApplyStyle: (changes: Partial<DocumentBlock["style"]>) => void;
   onSetMasterVariant: (variant: VariantKey) => void;
+  onSyncSelectedBlockVariant: (variant: VariantKey) => void;
   onSyncVariant: (variant: VariantKey) => void;
 }
 
 export const RightPane = ({
   document,
+  operationMessage,
   selectedBlock,
   onApplyStyle,
   onSetMasterVariant,
+  onSyncSelectedBlockVariant,
   onSyncVariant
 }: RightPaneProps) => {
   return (
@@ -79,6 +84,38 @@ export const RightPane = ({
 
       <section className="property-card">
         <div className="property-card__header">
+          <h2>Selected text sync</h2>
+          <span className="pill">{selectedBlock ? document.masterVariant : "No selection"}</span>
+        </div>
+
+        {selectedBlock ? (
+          <div className="variant-stack">
+            {document.variants.map((variant) => (
+              <div className="variant-card" key={variant.key}>
+                <div>
+                  <strong>{variant.label}</strong>
+                  <p>{getBlockTextForVariant(selectedBlock, variant.key) || "No synced text yet."}</p>
+                </div>
+                <button
+                  className="secondary-button"
+                  disabled={variant.key === document.masterVariant}
+                  onClick={() => onSyncSelectedBlockVariant(variant.key)}
+                  type="button"
+                >
+                  {variant.key === document.masterVariant ? "Master" : "Update"}
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="empty-note">Use these controls to convert or translate the selected block into each variant.</p>
+        )}
+
+        {operationMessage ? <p className="empty-note">{operationMessage}</p> : null}
+      </section>
+
+      <section className="property-card">
+        <div className="property-card__header">
           <h2>Variants</h2>
           <span className="pill">{document.masterVariant}</span>
         </div>
@@ -95,7 +132,7 @@ export const RightPane = ({
                   Make master
                 </button>
                 <button className="secondary-button" onClick={() => onSyncVariant(variant.key)} type="button">
-                  Sync
+                  Sync document
                 </button>
               </div>
             </div>

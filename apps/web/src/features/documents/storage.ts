@@ -1,11 +1,12 @@
 import type { DocumentRecord } from "./model";
+import { normalizeDocumentRecord } from "./helpers";
 import { createSeedDocuments } from "./sampleData";
 
 const STORAGE_KEY = "docmanager.documents.v1";
 
 export const loadDocuments = (): DocumentRecord[] => {
   if (typeof window === "undefined") {
-    return createSeedDocuments();
+    return createSeedDocuments().map((document) => normalizeDocumentRecord(document));
   }
 
   const raw = window.localStorage.getItem(STORAGE_KEY);
@@ -16,9 +17,9 @@ export const loadDocuments = (): DocumentRecord[] => {
 
   try {
     const parsed = JSON.parse(raw) as DocumentRecord[];
-    return parsed.length > 0 ? parsed : createSeedDocuments();
+    return parsed.length > 0 ? parsed.map((document) => normalizeDocumentRecord(document)) : createSeedDocuments();
   } catch {
-    return createSeedDocuments();
+    return createSeedDocuments().map((document) => normalizeDocumentRecord(document));
   }
 };
 
@@ -45,13 +46,14 @@ export const createDocumentFromText = async (file: File): Promise<DocumentRecord
   const title = file.name.replace(/\.[^.]+$/, "") || "Imported document";
   const now = new Date().toISOString();
   const pageId = `page-${crypto.randomUUID()}`;
+  const masterVariant = "ne-unicode";
 
-  return {
+  return normalizeDocumentRecord({
     id: `doc-${crypto.randomUUID()}`,
     title,
     description: "Imported from a text file.",
     updatedAt: now,
-    masterVariant: "ne-unicode",
+    masterVariant,
     variants: [
       { key: "ne-unicode", label: "Nepali Unicode", isMaster: true, isStale: false, lastSyncedAt: now },
       { key: "ne-preeti", label: "Preeti", isMaster: false, isStale: true, lastSyncedAt: null },
@@ -67,6 +69,9 @@ export const createDocumentFromText = async (file: File): Promise<DocumentRecord
           kind: index === 0 ? ("heading" as const) : ("paragraph" as const),
           pageId,
           text: paragraph.trim() || "Imported paragraph",
+          contentByVariant: {
+            [masterVariant]: paragraph.trim() || "Imported paragraph"
+          },
           level: index === 0 ? 1 : undefined,
           style: {
             fontSize: index === 0 ? 28 : 16,
@@ -79,5 +84,5 @@ export const createDocumentFromText = async (file: File): Promise<DocumentRecord
         }))
       }
     ]
-  };
+  });
 };

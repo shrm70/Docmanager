@@ -22,6 +22,7 @@ export interface DocumentBlock {
   kind: BlockKind;
   pageId: string;
   text: string;
+  contentByVariant?: Partial<Record<VariantKey, string>>;
   level?: number;
   style: BlockStyle;
   meta?: Record<string, string | number | boolean>;
@@ -57,4 +58,23 @@ export interface SearchHit {
   pageId: string;
   pageNumber: number;
   snippet: string;
+}
+
+export interface SyncJob {
+  id: string;
+  type: string;
+  status: "queued" | "running" | "completed" | "failed";
+  payload: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+  result?: Record<string, unknown> | null;
+  error?: string;
+}
+
+export interface TextOperationResult {
+  text: string;
+  warnings: string[];
+  provider?: string;
+  sourceEncoding?: string;
+  targetEncoding?: string;
 }
