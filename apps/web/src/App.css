@@ -84,6 +84,14 @@ button {
   color: #51483f;
 }
 
+.app-nav__button {
+  padding: 10px 14px;
+  border: 0;
+  border-radius: 999px;
+  background: #efe3d3;
+  color: #51483f;
+}
+
 .app-nav__links a.active {
   background: #1d1d1b;
   color: #fffaf4;
@@ -98,7 +106,8 @@ button {
 .hero-card,
 .page-header,
 .document-card,
-.settings-card {
+.settings-card,
+.login-card {
   background: rgba(255, 250, 244, 0.82);
   border: 1px solid rgba(29, 29, 27, 0.08);
   box-shadow: 0 24px 70px rgba(59, 44, 29, 0.08);
@@ -110,6 +119,21 @@ button {
   gap: 24px;
   padding: 32px;
   border-radius: 32px;
+}
+
+.login-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 32px 0;
+}
+
+.login-card {
+  width: min(560px, calc(100vw - 32px));
+  display: grid;
+  gap: 18px;
+  padding: 28px;
+  border-radius: 28px;
 }
 
 .page-header {

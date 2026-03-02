@@ -6,6 +6,9 @@ export const apiConfig = {
   host: process.env.DOCMANAGER_API_HOST || "127.0.0.1",
   port: Number(process.env.DOCMANAGER_API_PORT || 8787),
   dataPaths: createDataPaths(process.env.DOCMANAGER_DATA_DIR || join(process.cwd(), "data", "runtime")),
+  auth: {
+    accessToken: process.env.DOCMANAGER_ACCESS_TOKEN || ""
+  },
   translation: {
     provider: process.env.TRANSLATION_PROVIDER || "mock",
     apiKey: process.env.TRANSLATION_API_KEY || "",

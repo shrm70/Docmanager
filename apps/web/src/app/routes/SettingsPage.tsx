@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useAuth } from "../providers/AuthProvider";
 import { useDocumentStore } from "../providers/DocumentStoreProvider";
 
 const settings = [
@@ -10,7 +11,8 @@ const settings = [
 ];
 
 export const SettingsPage = () => {
-  const { apiBaseUrl, error, setApiBaseUrl, storageMode } = useDocumentStore();
+  const { error, setApiBaseUrl: setDocumentApiBaseUrl, storageMode } = useDocumentStore();
+  const { apiBaseUrl, authError, authRequired, setApiBaseUrl } = useAuth();
   const [draftApiBaseUrl, setDraftApiBaseUrl] = useState(apiBaseUrl);
 
   useEffect(() => {
@@ -44,6 +46,10 @@ export const SettingsPage = () => {
           <strong>{storageMode}</strong>
         </div>
         <div className="settings-row">
+          <span>Access control</span>
+          <strong>{authRequired ? "Shared token required" : "Open or local mode"}</strong>
+        </div>
+        <div className="settings-row">
           <span>Backend API base URL</span>
           <strong>{apiBaseUrl || "Not configured"}</strong>
         </div>
@@ -56,17 +62,31 @@ export const SettingsPage = () => {
           />
         </label>
         <div className="gallery-actions">
-          <button className="primary-button" onClick={() => setApiBaseUrl(draftApiBaseUrl)} type="button">
+          <button
+            className="primary-button"
+            onClick={() => {
+              setApiBaseUrl(draftApiBaseUrl);
+              setDocumentApiBaseUrl(draftApiBaseUrl);
+            }}
+            type="button"
+          >
             Save and reconnect
           </button>
-          <button className="secondary-button" onClick={() => setApiBaseUrl("")} type="button">
+          <button
+            className="secondary-button"
+            onClick={() => {
+              setApiBaseUrl("");
+              setDocumentApiBaseUrl("");
+            }}
+            type="button"
+          >
             Use local storage only
           </button>
         </div>
-        {error ? (
+        {error || authError ? (
           <div className="settings-row">
             <span>Connection status</span>
-            <strong>{error}</strong>
+            <strong>{error ?? authError}</strong>
           </div>
         ) : null}
       </section>

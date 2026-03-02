@@ -10,6 +10,7 @@ DocManager is a web-first document studio scaffold for rich document editing, Ne
 - Local autosave, gallery, page thumbnails, search, and variant sync status
 - File-based API persistence with document and job storage
 - Worker loop for queued variant sync jobs
+- Optional shared-token auth gate for protecting the live API and editor access
 - Real `Preeti <-> Unicode` conversion package backed by tested libraries
 - Architecture docs for Unicode master storage, Preeti support, translation, and admin sync
 
@@ -34,6 +35,8 @@ npm run test:nepali
 ## Implemented backend endpoints
 
 - `GET /health`
+- `GET /api/auth/status`
+- `POST /api/auth/session`
 - `GET /api/config`
 - `GET /api/documents`
 - `GET /api/documents/:documentId`
@@ -49,6 +52,30 @@ npm run test:nepali
 ## Translation
 
 The API supports `mock`, `google`, `azure`, and `deepl` provider modes. Without a real key, translation returns mock output so the rest of the workflow can be developed safely.
+
+## Access control
+
+Set `DOCMANAGER_ACCESS_TOKEN` in the API environment when you want the live deployment to require a shared access token.
+
+Example:
+
+```bash
+openssl rand -hex 32
+```
+
+Then put that value in `/home/docmanager/docmanager/.env`:
+
+```bash
+DOCMANAGER_ACCESS_TOKEN=your-generated-token
+```
+
+After updating the env file, restart services:
+
+```bash
+sudo systemctl restart docmanager-api docmanager-worker
+```
+
+The frontend will show a login screen automatically when the backend reports that auth is required.
 
 ## GitHub Pages target
 

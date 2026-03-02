@@ -20,17 +20,76 @@ import {
 import { translateText } from "@docmanager/translation-sdk";
 import { apiConfig } from "./config.js";
 
+const PUBLIC_PATHS = new Set(["/health", "/api/auth/status", "/api/auth/session"]);
+
+const getAuthorizationToken = (request) => {
+  const authorizationHeader = request.headers.authorization;
+
+  if (typeof authorizationHeader === "string" && authorizationHeader.startsWith("Bearer ")) {
+    return authorizationHeader.slice("Bearer ".length).trim();
+  }
+
+  return null;
+};
+
 export const buildServer = async () => {
   const server = Fastify({ logger: true });
   await server.register(cors, { origin: true });
+
+  server.addHook("onRequest", async (request, reply) => {
+    if (!apiConfig.auth.accessToken || request.method === "OPTIONS") {
+      return;
+    }
+
+    const requestPath = request.url.split("?")[0];
+
+    if (PUBLIC_PATHS.has(requestPath)) {
+      return;
+    }
+
+    if (getAuthorizationToken(request) === apiConfig.auth.accessToken) {
+      return;
+    }
+
+    reply.code(401);
+    return {
+      message: "Authentication required."
+    };
+  });
 
   server.get("/health", async () => ({
     ok: true,
     service: "docmanager-api"
   }));
 
+  server.get("/api/auth/status", async () => ({
+    authRequired: Boolean(apiConfig.auth.accessToken)
+  }));
+
+  server.post("/api/auth/session", async (request, reply) => {
+    if (!apiConfig.auth.accessToken) {
+      return {
+        authenticated: true,
+        authRequired: false
+      };
+    }
+
+    if (getAuthorizationToken(request) !== apiConfig.auth.accessToken) {
+      reply.code(401);
+      return {
+        message: "Invalid access token."
+      };
+    }
+
+    return {
+      authenticated: true,
+      authRequired: true
+    };
+  });
+
   server.get("/api/config", async () => ({
     pagesBasePath: "/Docmanager/",
+    authRequired: Boolean(apiConfig.auth.accessToken),
     translationProvider: apiConfig.translation.provider,
     dataDirectory: apiConfig.dataPaths.baseDir
   }));

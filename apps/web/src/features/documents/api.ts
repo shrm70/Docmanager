@@ -2,6 +2,7 @@ import type { DocumentRecord, SyncJob, TextOperationResult, VariantKey } from ".
 import { normalizeDocumentRecord } from "./helpers";
 
 const API_BASE_STORAGE_KEY = "docmanager.api-base-url.v1";
+const API_TOKEN_STORAGE_KEY = "docmanager.api-token.v1";
 
 const normalizeApiBaseUrl = (value: string) => value.trim().replace(/\/+$/, "");
 
@@ -29,6 +30,37 @@ export const setStoredApiBaseUrl = (value: string) => {
   window.localStorage.setItem(API_BASE_STORAGE_KEY, normalized);
 };
 
+export const getStoredApiToken = () => {
+  if (typeof window === "undefined") {
+    return "";
+  }
+
+  return window.localStorage.getItem(API_TOKEN_STORAGE_KEY) ?? "";
+};
+
+export const setStoredApiToken = (value: string) => {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const normalized = value.trim();
+
+  if (!normalized) {
+    window.localStorage.removeItem(API_TOKEN_STORAGE_KEY);
+    return;
+  }
+
+  window.localStorage.setItem(API_TOKEN_STORAGE_KEY, normalized);
+};
+
+export const clearStoredApiToken = () => {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.localStorage.removeItem(API_TOKEN_STORAGE_KEY);
+};
+
 const createApiError = async (response: Response) => {
   let message = `Request failed with status ${response.status}.`;
 
@@ -42,7 +74,36 @@ const createApiError = async (response: Response) => {
   return new Error(message);
 };
 
-const requestJson = async <T>(path: string, init?: RequestInit): Promise<T> => {
+const createRequestHeaders = (
+  headers: HeadersInit | undefined,
+  options: {
+    authToken?: string;
+    includeStoredToken?: boolean;
+  } = {}
+) => {
+  const nextHeaders = new Headers(headers);
+
+  if (!nextHeaders.has("Content-Type")) {
+    nextHeaders.set("Content-Type", "application/json");
+  }
+
+  const token = options.authToken ?? (options.includeStoredToken === false ? "" : getStoredApiToken());
+
+  if (token) {
+    nextHeaders.set("Authorization", `Bearer ${token}`);
+  }
+
+  return nextHeaders;
+};
+
+const requestJson = async <T>(
+  path: string,
+  init?: RequestInit,
+  options?: {
+    authToken?: string;
+    includeStoredToken?: boolean;
+  }
+): Promise<T> => {
   const baseUrl = getStoredApiBaseUrl();
 
   if (!baseUrl) {
@@ -51,10 +112,7 @@ const requestJson = async <T>(path: string, init?: RequestInit): Promise<T> => {
 
   const response = await fetch(`${baseUrl}${path}`, {
     ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers ?? {})
-    }
+    headers: createRequestHeaders(init?.headers, options)
   });
 
   if (!response.ok) {
@@ -67,6 +125,22 @@ const requestJson = async <T>(path: string, init?: RequestInit): Promise<T> => {
 
   return (await response.json()) as T;
 };
+
+export const getAuthStatusFromApi = () => requestJson<{ authRequired: boolean }>("/api/auth/status", undefined, {
+  includeStoredToken: false
+});
+
+export const authenticateWithApiToken = (token: string) =>
+  requestJson<{ authenticated: boolean; authRequired: boolean }>(
+    "/api/auth/session",
+    {
+      method: "POST"
+    },
+    {
+      authToken: token,
+      includeStoredToken: false
+    }
+  );
 
 export const listDocumentsFromApi = async () => {
   const response = await requestJson<{ items: DocumentRecord[] }>("/api/documents");
