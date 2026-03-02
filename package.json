@@ -1,0 +1,24 @@
+{
+  "name": "docmanager",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:web": "npm --workspace @docmanager/web run dev",
+    "dev:api": "npm --workspace @docmanager/api run dev",
+    "dev:worker": "npm --workspace @docmanager/worker run dev",
+    "build:web": "npm --workspace @docmanager/web run build",
+    "build": "npm run build:web",
+    "lint:web": "npm --workspace @docmanager/web run lint",
+    "lint": "npm run lint:web",
+    "start:api": "npm --workspace @docmanager/api run start",
+    "start:worker": "npm --workspace @docmanager/worker run start",
+    "test:nepali": "node --test packages/nepali-engine/test/*.test.js"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}
